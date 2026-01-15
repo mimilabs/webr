@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getWebRInstance } from '@/lib/webr-singleton';
+import { verifyApiKey, unauthorizedResponse } from '@/lib/auth';
 import { readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
 
@@ -37,7 +38,7 @@ function jsonToRDataFrame(data: Record<string, unknown>[], varName: string = 'qu
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*', // Will be set dynamically
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function getCorsHeaders(origin: string | null) {
@@ -65,6 +66,12 @@ export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const origin = request.headers.get('origin');
   const headers = getCorsHeaders(origin);
+
+  // Verify API key
+  const authResult = verifyApiKey(request);
+  if (!authResult.valid) {
+    return unauthorizedResponse(authResult.error || 'Invalid credentials', headers);
+  }
 
   try {
     const body = await request.json();

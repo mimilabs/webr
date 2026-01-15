@@ -43,3 +43,6 @@ next-env.d.ts
 # PM2 logs
 /logs
 *.log
+
+# API Keys (DO NOT COMMIT)
+API_KEY.txt

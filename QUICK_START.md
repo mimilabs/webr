@@ -5,6 +5,18 @@
 https://webr.mimilabs.org
 ```
 
+## 🔐 Authentication Required
+
+All requests require an API key in the `Authorization` header:
+
+```
+Authorization: Bearer YOUR_API_KEY
+```
+
+**Get your API key**: Contact admin@mimilabs.ai
+
+See `AUTH.md` for detailed authentication guide.
+
 ## 📡 Endpoints
 
 ### Health Check
@@ -30,9 +42,14 @@ Content-Type: application/json
 
 ### JavaScript
 ```javascript
+const API_KEY = process.env.WEBR_API_KEY; // Store in .env.local
+
 const response = await fetch('https://webr.mimilabs.org/api/execute', {
   method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${API_KEY}`
+  },
   body: JSON.stringify({
     code: 'library(ggplot2)\nggplot(mtcars, aes(x=wt, y=mpg)) + geom_point()'
   })
@@ -45,9 +62,13 @@ const result = await response.json();
 ### Python
 ```python
 import requests
+import os
+
+API_KEY = os.getenv('WEBR_API_KEY')  # Store in .env
 
 response = requests.post(
     'https://webr.mimilabs.org/api/execute',
+    headers={'Authorization': f'Bearer {API_KEY}'},
     json={'code': 'library(ggplot2)\nggplot(mtcars, aes(x=wt, y=mpg)) + geom_point()'}
 )
 
@@ -59,6 +80,7 @@ result = response.json()
 ```bash
 curl -X POST https://webr.mimilabs.org/api/execute \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -d '{"code": "print(1 + 1)"}'
 ```
 
@@ -81,9 +103,11 @@ curl -X POST https://webr.mimilabs.org/api/execute \
 - **Plots**: Automatically captured, returned as base64
 
 ## 📚 Full Documentation
-See `INTEGRATION.md` for complete examples and best practices.
+- **Authentication**: See `AUTH.md` for API key usage
+- **Integration**: See `INTEGRATION.md` for complete examples
+- **Code Snippets**: See `examples/snippets.js` or `examples/snippets.py`
 
 ## 🆘 Support
-- **Status**: `GET /api/health`
-- **Email**: admin@mimilabs.ai
+- **Get API Key**: admin@mimilabs.ai
+- **Status**: `GET /api/health` (requires API key)
 - **Docs**: https://webr.mimilabs.org

@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function getCorsHeaders(origin: string | null) {
@@ -36,6 +36,8 @@ export async function GET(request: NextRequest) {
   const origin = request.headers.get('origin');
   const headers = getCorsHeaders(origin);
 
+  // Health endpoint is public (no authentication required)
+  // This allows load balancers and monitoring tools to check status
   const status = {
     status: 'ok',
     webrInitialized: isWebRInitialized(),
