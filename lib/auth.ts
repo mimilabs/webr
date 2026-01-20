@@ -1,8 +1,21 @@
+/**
+ * API Key Authentication Module
+ *
+ * Provides simple API key authentication for WebR API endpoints.
+ * API key must be set in environment variable: API_KEY
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 
 /**
  * Verify API key from request headers
- * Expects: Authorization: Bearer YOUR_API_KEY
+ *
+ * Supports two authorization formats:
+ * - Bearer token: "Authorization: Bearer YOUR_API_KEY"
+ * - Plain token: "Authorization: YOUR_API_KEY"
+ *
+ * @param request - The Next.js request object
+ * @returns Object with validation result and optional error message
  */
 export function verifyApiKey(request: NextRequest): { valid: boolean; error?: string } {
   const apiKey = process.env.API_KEY;
@@ -31,7 +44,11 @@ export function verifyApiKey(request: NextRequest): { valid: boolean; error?: st
 }
 
 /**
- * Create unauthorized response
+ * Create a standardized 401 Unauthorized response
+ *
+ * @param error - Error message describing why authentication failed
+ * @param headers - Optional additional headers (e.g., CORS headers)
+ * @returns NextResponse with 401 status and error details
  */
 export function unauthorizedResponse(error: string, headers?: Record<string, string>) {
   return NextResponse.json(

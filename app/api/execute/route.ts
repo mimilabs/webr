@@ -1,3 +1,21 @@
+/**
+ * WebR Execution Endpoint
+ *
+ * POST /api/execute
+ *
+ * Executes R code in WebAssembly and returns results including:
+ * - Console output
+ * - Generated plots (as base64-encoded PNG images)
+ * - Execution metrics
+ *
+ * Features:
+ * - API key authentication
+ * - JSON data injection as R data frames
+ * - Automatic plot capture and encoding
+ * - Request isolation using WebR shelters
+ * - CORS support
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getWebRInstance } from '@/lib/webr-singleton';
 import { verifyApiKey, unauthorizedResponse } from '@/lib/auth';
@@ -8,7 +26,16 @@ import { join } from 'path';
 export const runtime = 'nodejs';
 export const maxDuration = 60; // R code execution can take time
 
-// Convert JSON data to R data frame code
+/**
+ * Convert JSON data to R data frame code
+ *
+ * Transforms a JSON array into R code that creates a data.frame.
+ * Handles type conversion for strings, numbers, booleans, and null values.
+ *
+ * @param data - Array of objects to convert
+ * @param varName - Name of the R variable to create (default: 'query_result')
+ * @returns R code string that creates the data frame
+ */
 function jsonToRDataFrame(data: Record<string, unknown>[], varName: string = 'query_result'): string {
   if (!data || data.length === 0) return '';
 
@@ -34,13 +61,24 @@ function jsonToRDataFrame(data: Record<string, unknown>[], varName: string = 'qu
   return `${varName} <- data.frame(\n${columns.join(',\n')},\n  stringsAsFactors = FALSE\n)`;
 }
 
-// CORS headers
+/**
+ * CORS configuration for cross-origin requests
+ */
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*', // Will be set dynamically
+  'Access-Control-Allow-Origin': '*', // Set dynamically per request
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
+/**
+ * Get CORS headers for the request origin
+ *
+ * Only allows requests from configured domains.
+ * Modify allowedOrigins array to add/remove domains.
+ *
+ * @param origin - Request origin from headers
+ * @returns CORS headers object
+ */
 function getCorsHeaders(origin: string | null) {
   const allowedOrigins = [
     'https://www.mimilabs.ai',
@@ -57,23 +95,45 @@ function getCorsHeaders(origin: string | null) {
   return corsHeaders;
 }
 
+/**
+ * Handle OPTIONS preflight requests for CORS
+ */
 export async function OPTIONS(request: NextRequest) {
   const origin = request.headers.get('origin');
   return NextResponse.json({}, { headers: getCorsHeaders(origin) });
 }
 
+/**
+ * Handle POST requests to execute R code
+ *
+ * Request body:
+ * {
+ *   "code": "library(ggplot2)\nggplot(...)",  // Required: R code to execute
+ *   "data": [{"col1": "val1"}]                 // Optional: JSON data to inject as query_result
+ * }
+ *
+ * Response:
+ * {
+ *   "success": true,
+ *   "output": "...",           // R console output
+ *   "plots": ["base64..."],    // Array of base64-encoded PNG images
+ *   "error": null,             // Error message if failed
+ *   "executionTime": 234       // Execution time in milliseconds
+ * }
+ */
 export async function POST(request: NextRequest) {
   const startTime = Date.now();
   const origin = request.headers.get('origin');
   const headers = getCorsHeaders(origin);
 
-  // Verify API key
+  // Step 1: Verify API key
   const authResult = verifyApiKey(request);
   if (!authResult.valid) {
     return unauthorizedResponse(authResult.error || 'Invalid credentials', headers);
   }
 
   try {
+    // Step 2: Parse and validate request body
     const body = await request.json();
     const { code, data } = body;
 
@@ -90,14 +150,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get WebR instance (will initialize if needed)
+    // Step 3: Get WebR instance (initializes on first use)
     const webR = await getWebRInstance();
 
-    // Create shelter for this execution
+    // Step 4: Create isolated execution environment (shelter)
+    // Shelters provide request isolation and automatic cleanup
     const shelter = await new webR.Shelter();
 
     try {
-      // Clear any existing plots in /tmp
+      // Step 5: Clean up old plot files from previous executions
       const tmpDir = '/tmp';
       const existingFiles = readdirSync(tmpDir);
       existingFiles.forEach(file => {
@@ -110,20 +171,20 @@ export async function POST(request: NextRequest) {
         }
       });
 
-      // Build the code to execute
+      // Step 6: Build the R code to execute
       let codeToRun = '';
 
-      // Inject SQL data if provided
+      // Optional: Inject JSON data as R data frame named 'query_result'
       if (data && Array.isArray(data) && data.length > 0) {
         console.log('[WebR] Injecting data as query_result data frame');
         const dataFrameCode = jsonToRDataFrame(data, 'query_result');
         if (dataFrameCode) {
-          codeToRun += `# Auto-loaded SQL data (${data.length} rows)\n${dataFrameCode}\n\n`;
+          codeToRun += `# Auto-loaded data (${data.length} rows)\n${dataFrameCode}\n\n`;
         }
       }
 
-      // User code with automatic plot capture
-      // Wrap user code in expression that captures the last value and prints it if it's a plot
+      // Step 7: Wrap user code with automatic plot capture logic
+      // This ensures plots are saved to /tmp and returned as base64
       codeToRun += `
 # Clean up old plot files from previous executions
 .old_plots <- list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
@@ -149,15 +210,16 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
 
       console.log('[WebR] Executing R code');
 
-      // Execute the code using shelter.captureR
+      // Step 8: Execute R code in isolated shelter
+      // captureR returns console output, conditions (errors/warnings), and result
       const result = await shelter.captureR(codeToRun, {
-        withAutoprint: true,
-        captureStreams: true,
-        captureConditions: true,
-        captureGraphics: false, // Disabled for Node.js - using file-based capture
+        withAutoprint: true,           // Print last expression automatically
+        captureStreams: true,           // Capture stdout/stderr
+        captureConditions: true,        // Capture errors/warnings
+        captureGraphics: false,         // File-based capture instead (Node.js compatible)
       });
 
-      // Extract output
+      // Step 9: Process console output (stdout/stderr)
       let outputText = '';
       if (result.output) {
         for (const item of result.output) {
@@ -169,7 +231,7 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
         }
       }
 
-      // Check for errors first
+      // Step 10: Check for R errors and warnings
       let errorMessage = '';
       if (result.conditions) {
         for (const cond of result.conditions) {
@@ -192,11 +254,12 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
         }, { status: 500, headers });
       }
 
-      // Extract plot files and convert to base64
+      // Step 11: Extract plot files and convert to base64
       const plots: string[] = [];
 
       if (result.result) {
         try {
+          // Get list of plot file paths from R execution result
           const plotFilesResult = await result.result.toJs();
 
           // Extract file paths from R character vector
@@ -207,12 +270,12 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
             files = plotFilesResult;
           }
 
-          // Read and convert each plot file
+          // Read each plot file and convert to base64
           for (let i = 0; i < files.length; i++) {
             const filename = files[i];
             if (typeof filename === 'string' && filename.startsWith('/tmp/')) {
               try {
-                // Read file using R's readBin
+                // Use R's readBin to read file as raw bytes
                 const readResult = await webR.evalR(`
                   .f <- "${filename}"
                   if (file.exists(.f)) {
@@ -224,7 +287,7 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
                 `);
                 const rawData = await readResult.toJs();
 
-                // Convert raw vector to buffer
+                // Convert R raw vector to Node.js Buffer
                 let bytes: number[] = [];
                 if (rawData && typeof rawData === 'object' && 'values' in rawData) {
                   bytes = rawData.values || [];
@@ -251,8 +314,10 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
       const executionTime = Date.now() - startTime;
       console.log(`[WebR] Request completed in ${executionTime}ms`);
 
+      // Step 12: Clean up shelter (release R objects)
       await shelter.purge();
 
+      // Step 13: Return successful response
       return NextResponse.json(
         {
           success: true,
@@ -264,11 +329,13 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
         { headers }
       );
     } catch (execError: any) {
+      // Clean up shelter even on error
       await shelter.purge();
       throw execError;
     }
 
   } catch (error: any) {
+    // Handle any errors during request processing
     const executionTime = Date.now() - startTime;
     console.error('[WebR] Execution error:', error);
 
