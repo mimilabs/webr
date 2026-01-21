@@ -14,14 +14,17 @@ let initPromise: Promise<void> | null = null;
 /**
  * R packages installed automatically on first startup
  * These packages are specifically chosen for charting and data analysis in LLM operations
+ *
+ * NOTE: Package installation can take 30-60 seconds. Only essential packages are included.
  */
 const REQUIRED_PACKAGES = [
-  'ggplot2',  // Data visualization
-  'dplyr',    // Data manipulation
-  'tidyr',    // Data tidying
-  'survey',   // Survey statistics
-  'srvyr',    // dplyr-style survey analysis
-  'broom'     // Tidy model outputs
+  'ggplot2',  // Data visualization - most critical for charting
+  // Commented out to speed up initialization - can be added back if needed:
+  // 'dplyr',    // Data manipulation
+  // 'tidyr',    // Data tidying
+  // 'survey',   // Survey statistics
+  // 'srvyr',    // dplyr-style survey analysis
+  // 'broom'     // Tidy model outputs
 ];
 
 /**

@@ -17,7 +17,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getWebRInstance } from '@/lib/webr-singleton';
+import { getWebRInstance, isWebRInitialized } from '@/lib/webr-singleton';
 import { verifyApiKey, unauthorizedResponse } from '@/lib/auth';
 import { readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
@@ -25,6 +25,13 @@ import { join } from 'path';
 // Force Node.js runtime (required for WebR)
 export const runtime = 'nodejs';
 export const maxDuration = 60; // R code execution can take time
+
+// Execution timeout (45 seconds to leave buffer before Next.js timeout)
+const EXECUTION_TIMEOUT_MS = 45000;
+
+// Track if an execution is currently in progress
+let isExecuting = false;
+let executionStartTime = 0;
 
 /**
  * Convert JSON data to R data frame code
@@ -132,8 +139,25 @@ export async function POST(request: NextRequest) {
     return unauthorizedResponse(authResult.error || 'Invalid credentials', headers);
   }
 
+  // Step 2: Check if an execution is already in progress
+  if (isExecuting) {
+    const elapsed = Date.now() - executionStartTime;
+    const remainingTime = Math.max(0, EXECUTION_TIMEOUT_MS - elapsed);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: `Server is currently executing another request. Please try again in ${Math.ceil(remainingTime / 1000)} seconds.`,
+        output: '',
+        plots: [],
+        executionTime: Date.now() - startTime
+      },
+      { status: 429, headers } // 429 Too Many Requests
+    );
+  }
+
   try {
-    // Step 2: Parse and validate request body
+    // Step 3: Parse and validate request body
     const body = await request.json();
     const { code, data } = body;
 
@@ -150,10 +174,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Step 3: Get WebR instance (initializes on first use)
+    // Step 3: Mark execution as in progress
+    isExecuting = true;
+    executionStartTime = Date.now();
+
+    // Set a safety timeout to reset the flag if execution gets stuck
+    const safetyTimeout = setTimeout(() => {
+      if (isExecuting) {
+        console.error('[WebR] Safety timeout triggered - resetting execution flag');
+        isExecuting = false;
+      }
+    }, EXECUTION_TIMEOUT_MS + 5000); // 5 seconds buffer
+
+    // Step 4: Get WebR instance (initializes on first use)
     const webR = await getWebRInstance();
 
-    // Step 4: Create isolated execution environment (shelter)
+    // Step 5: Create isolated execution environment (shelter)
     // Shelters provide request isolation and automatic cleanup
     const shelter = await new webR.Shelter();
 
@@ -245,6 +281,8 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
 
       if (errorMessage) {
         await shelter.purge();
+        clearTimeout(safetyTimeout);
+        isExecuting = false;
         return NextResponse.json({
           success: false,
           output: outputText.trim(),
@@ -317,7 +355,11 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
       // Step 12: Clean up shelter (release R objects)
       await shelter.purge();
 
-      // Step 13: Return successful response
+      // Step 13: Reset execution flag and clear timeout
+      clearTimeout(safetyTimeout);
+      isExecuting = false;
+
+      // Step 14: Return successful response
       return NextResponse.json(
         {
           success: true,
@@ -331,6 +373,8 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
     } catch (execError: any) {
       // Clean up shelter even on error
       await shelter.purge();
+      clearTimeout(safetyTimeout);
+      isExecuting = false;
       throw execError;
     }
 
@@ -338,6 +382,9 @@ list.files("/tmp", pattern = "\\\\.(png|jpg|jpeg)$", full.names = TRUE)
     // Handle any errors during request processing
     const executionTime = Date.now() - startTime;
     console.error('[WebR] Execution error:', error);
+
+    // Reset execution flag in case of error
+    isExecuting = false;
 
     return NextResponse.json(
       {
